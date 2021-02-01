@@ -1,0 +1,52 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class CameraFollow : MonoBehaviour
+{
+	public float sensitivity;
+	public float clampAngle;
+	public float cameraSpeed;
+
+	private float mouseX;
+	private float mouseY;
+	private float rotX;
+	private float rotY;
+
+	public Transform Camera;
+	public Transform player;
+
+	void Start()
+	{
+		Vector3 rot = transform.localRotation.eulerAngles;
+		rotY = rot.y;
+		rotX = rot.x;
+		Cursor.lockState = CursorLockMode.Locked;
+	}
+
+	void LateUpdate()
+	{
+		mouseX = Input.GetAxis("Mouse X");
+		mouseY = -Input.GetAxis("Mouse Y");
+
+		rotY += mouseX * sensitivity * Time.deltaTime;
+		rotX += mouseY * sensitivity * Time.deltaTime;
+
+		rotX = Mathf.Clamp(rotX, -clampAngle, clampAngle);
+
+		Quaternion localRotation = Quaternion.Euler(rotX, rotY, 0.0f);
+		transform.rotation = localRotation;
+	}
+
+	void Update()
+    {
+		CameraUpdate();
+	}
+
+	void CameraUpdate()
+	{
+		float step = cameraSpeed * Time.deltaTime;
+
+		transform.position = Vector3.MoveTowards(transform.position, player.position, step);	
+	}
+}
