@@ -1,0 +1,129 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class Pistol : MonoBehaviour
+{
+    public GameObject player;
+
+    public int reloadAmount;
+    public int capacity;
+    public int ammo;
+    public float force;
+    public float damage;
+    public float range;
+    public float fireRate;
+
+    public float reloadTime;
+
+    private float nextShot = 0f;
+
+    private bool reloading;
+
+    public Camera cam;
+
+    public GameObject impactEffect;
+    public ParticleSystem flashEffect;
+
+    public Text ammoUI;
+    public Text capacityUI;
+    public Text reloadAmountUI;
+
+    void Start()
+    {
+        reloading = false;
+    }
+
+    void Update()
+    {
+        if (reloading)
+        {
+            return;
+        }
+
+         if (GetComponent<Rigidbody>().isKinematic == true)
+         {
+
+            ammoUI.text = ammo.ToString();
+            capacityUI.text = capacity.ToString();
+            reloadAmountUI.text = reloadAmount.ToString();
+
+            if (Input.GetButtonDown("Fire1") && Time.time >= nextShot)
+            {
+                ammoUI.text = ammo.ToString();
+                capacityUI.text = capacity.ToString();
+                reloadAmountUI.text = reloadAmount.ToString();
+
+                nextShot = Time.time + 1 / fireRate;
+                Shoot();
+            }
+
+            if (Input.GetKey(KeyCode.R) && ammo < capacity)
+            {
+                StartCoroutine(Reload());
+                return;
+            }
+             
+         } 
+    }
+
+    public void Shoot()
+    {
+        player.transform.localRotation = Quaternion.Euler(0, cam.transform.rotation.eulerAngles.y, 0);
+        flashEffect.Play();
+        
+        ammo--;
+
+        if (ammo == 0)
+        {
+            ammoUI.text = ammo.ToString();
+            capacityUI.text = capacity.ToString();
+            reloadAmountUI.text = reloadAmount.ToString();
+
+            StartCoroutine(Reload());
+            return;
+        }
+
+        RaycastHit hit;
+        if (Physics.Raycast(cam.transform.position, cam.transform.forward, out hit, range))
+        {
+            Target target = hit.transform.GetComponent<Target>();
+            if (target != null)
+            {
+                target.TakeDamage(damage);
+            }
+
+            if (hit.rigidbody != null)
+            {
+                hit.rigidbody.AddForce(-hit.normal * force, ForceMode.Impulse);
+            }
+
+            Instantiate(impactEffect, hit.point, Quaternion.LookRotation(hit.normal));
+        }
+    }
+
+    IEnumerator Reload()
+    {
+        if (reloadAmount > 0)
+        {
+            Debug.Log("reloading");
+            reloading = true;
+            yield return new WaitForSeconds(reloadTime);
+
+            reloadAmount--;
+
+            ammo = capacity;
+            reloading = false;
+
+            ammoUI.text = ammo.ToString();
+            capacityUI.text = capacity.ToString();
+            reloadAmountUI.text = reloadAmount.ToString();
+
+        } else
+        {
+            reloading = true;
+            Debug.Log("Out of ammo");
+        }
+    }
+}
