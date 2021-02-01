@@ -1,0 +1,92 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class GameManager : MonoBehaviour
+{
+    public GameObject cursor;
+    
+    public GameObject winUI;
+
+    public Pistol canShoot;
+    public PlayerMove2 movementOn;
+    public Rigidbody RBplayer;
+    public Transform player;
+    public GameObject playerRespawn;
+
+    public GameObject deathEffect;
+
+    bool gameEnded = true;
+    bool hasRespawned;
+
+    void Awake()
+    {
+        canShoot.enabled = false;
+        movementOn.enabled = false;
+        Invoke("RespawnAnim", 0.5f);
+        Invoke("RespawnMove", 2f); 
+    }
+
+    void Start()
+    {
+        winUI.SetActive(false);
+    }
+
+    void Update()
+    {
+        if (player.position.y < -10f)
+        {
+            EndGame(); 
+        }
+    }
+
+    public void CompleteLevel()
+    {
+        Invoke("LevelWon", 0.1f);
+    }
+
+    public void EndGame()
+    {
+        if (gameEnded == true)
+        {
+            gameEnded = false;
+            Death();
+            Invoke("Respawn", 1.5f);
+        }
+    }
+
+    void LevelWon()
+    {
+        movementOn.enabled = false;
+        cursor.SetActive(false);
+        winUI.SetActive(true);
+    }
+
+    void Respawn()
+    {
+        cursor.SetActive(true);
+        gameEnded = true;
+        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+    }
+    
+    void Death()
+    {
+        cursor.SetActive(false);
+        Instantiate(deathEffect, player.position, player.rotation);
+
+        playerRespawn.SetActive(false);
+        movementOn.enabled = false;
+    }
+
+    void RespawnAnim()
+    {
+        playerRespawn.SetActive(true);
+    }
+
+    void RespawnMove()
+    {
+        canShoot.enabled = true;
+        movementOn.enabled = true;
+    }
+}
