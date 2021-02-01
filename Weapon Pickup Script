@@ -1,0 +1,90 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class WeaponPickup : MonoBehaviour
+{
+    public Camera cam;
+
+    public float throwForce;
+    public float distance;
+
+    private GameObject currentWeapon;
+    private GameObject wp;
+    public GameObject AmmoUI;
+
+    private bool canGrab;
+    private bool pickedUp;
+
+    void Start()
+    {
+        pickedUp = false;
+        AmmoUI.SetActive(false);
+    }
+
+    void Update()
+    {
+        CheckForWeapon();
+
+        if (canGrab)
+        {
+            if (Input.GetKey(KeyCode.E) && !pickedUp)
+            {
+                PickupWeapon();
+            }
+
+            if (Input.GetKey(KeyCode.E) && pickedUp)
+            {
+                Drop();
+                PickupWeapon();
+            }
+        }
+
+        if (Input.GetKey(KeyCode.Q) && pickedUp)
+        {
+            Drop();
+        }
+    }
+
+    public void CheckForWeapon()
+    {
+        RaycastHit hit;
+        if (Physics.Raycast(cam.transform.position, cam.transform.forward, out hit, distance))
+        {
+            if (hit.transform.tag == "Weapon")
+            {
+                Debug.Log("Pick up " + hit.transform.name + "?");
+                canGrab = true;
+                wp = hit.transform.gameObject;
+            } else {
+                canGrab = false;
+            }
+        }
+    }
+
+    public void PickupWeapon()
+    {
+        pickedUp = true;
+        AmmoUI.SetActive(true);
+        currentWeapon = wp;
+        currentWeapon.transform.position = transform.position + (transform.up * -4.35f + transform.forward * 4f + transform.right * 0.6f);
+        currentWeapon.transform.parent = transform;
+        currentWeapon.transform.localEulerAngles = new Vector3(0, transform.rotation.y, 0);
+        currentWeapon.GetComponent<Rigidbody>().isKinematic = true;
+    }
+
+    public void Drop()
+    {
+        pickedUp = false;
+        AmmoUI.SetActive(false);
+
+        currentWeapon.GetComponent<Rigidbody>().isKinematic = false;
+
+        currentWeapon.GetComponent<Rigidbody>().AddForce(transform.up * throwForce / 2f, ForceMode.Impulse);
+        currentWeapon.GetComponent<Rigidbody>().AddForce(transform.forward * throwForce, ForceMode.Impulse);
+        currentWeapon.GetComponent<Rigidbody>().AddForce(transform.right * throwForce / 3f, ForceMode.Impulse);
+
+        currentWeapon.transform.parent = null;
+        currentWeapon = null;
+    }
+}
