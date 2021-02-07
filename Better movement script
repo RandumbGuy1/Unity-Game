@@ -1,0 +1,481 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System;
+
+public class PlayerMove2 : MonoBehaviour
+{
+    private Rigidbody rb;
+    public LayerMask Environment;
+    public Transform camera;
+    public Transform cameraBase;
+    public GameObject landEffect;
+    public ParticleSystem landEffect2;
+    public ParticleSystem sprintEffect;
+    public ParticleSystem wallJumpEffect;
+
+    //Movement
+    private float setSpeed;
+    private float sprintSpeed;
+    public float moveSpeed;
+    public float maxSpeed;
+    private float setMaxSpeed;
+    private float totalMaxSpeed;
+    private bool grounded;
+    private bool landed;
+    private bool canSprint;
+
+    public float counterMovement;
+    private float threshold = 0.01f;
+    public float maxSlopeAngle = 35f;
+
+    private bool moving;
+
+    //Crouch & Slide
+    private Vector3 crouchScale = new Vector3(1f, 0.7f, 1f);
+    private Vector3 playerScale;
+    public float slideForce = 400;
+    public float slideCounterMovement = 0.2f;
+    public float crouchGravityMultiplier;
+
+    //Jumping
+    private bool readyToJump = true;
+    public float jumpForce;
+    public Vector3 jump;
+
+    //WallJumping
+    public float wallrunForce;
+    bool isWallRight, isWallLeft, isWallFront;
+    bool wallRunning;
+    public float maxWallRunCameraTilt;
+    private float wallRunCameraTilt;
+    public float wallJumpForce;
+    private Vector3 wallJump;
+    private bool canWallJump;
+    private bool canLeaveWallRun;
+    private bool readyToWallJump;
+    private bool canAddWallRun;
+
+    //Input
+    float x, y;
+    bool sprinting, crouching;
+
+    void Awake()
+    {
+        sprintEffect.Stop();
+        Cursor.lockState = CursorLockMode.Locked;
+        rb = GetComponent<Rigidbody>();
+    }
+
+    void Start()
+    {
+        playerScale = transform.localScale;
+        Cursor.visible = false;
+        canWallJump = false;
+        sprintSpeed = moveSpeed * 1.25f;
+        setSpeed = moveSpeed;
+        wallRunCameraTilt = 0f;
+        canLeaveWallRun = false;
+        totalMaxSpeed = 1000f;
+        setMaxSpeed = maxSpeed;
+        landed = true;
+        readyToWallJump = true;
+        canAddWallRun = true;
+    }
+
+    void FixedUpdate()
+    {
+        Movement();
+        Look();
+    }
+
+    void Update()
+    {
+        PlayerInput();
+        WallRunInput();
+    }
+
+    void LateUpdate()
+    {
+        CheckForWall();
+    }
+
+    private void PlayerInput()
+    {
+        x = Input.GetAxisRaw("Horizontal");
+        y = Input.GetAxisRaw("Vertical");
+        sprinting = Input.GetKey(KeyCode.LeftShift);
+        crouching = Input.GetKey(KeyCode.LeftControl);
+        moving = Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.D);
+
+        if (Input.GetKey(KeyCode.W) && !Input.GetKey(KeyCode.S)) sprintEffect.transform.localRotation = Quaternion.Euler(180f, 2f, 90f);
+        if (Input.GetKey(KeyCode.S) && !Input.GetKey(KeyCode.W)) sprintEffect.transform.localRotation = Quaternion.Euler(0f, 2f, 90f);
+
+        //Jumping
+        if (Input.GetKey(KeyCode.Space) && grounded && !canWallJump && readyToJump)
+        {
+            readyToJump = false;
+
+            Jump();
+        }
+
+        if (Input.GetKeyDown(KeyCode.Space) && !grounded && canWallJump)
+        {
+            WallJump();
+        }
+
+        //Crouching
+        if (Input.GetKeyDown(KeyCode.LeftControl))
+        {
+            StartCrouch();
+        }
+
+        if (Input.GetKeyUp(KeyCode.LeftControl))
+        {
+            StopCrouch();
+        }
+
+        if (rb.velocity.magnitude > 50f)
+        {
+            HighSpeed();
+           FindObjectOfType<WeaponPickup>().MaxThrow();
+        }
+
+        if (rb.velocity.magnitude < 50f)
+        {
+            sprintEffect.Stop();
+            canSprint = true;
+            FindObjectOfType<WeaponPickup>().ResetThrow();
+        }
+    }
+
+    private void Look()
+    {   
+        camera.transform.localRotation = Quaternion.Euler(0, (wallRunCameraTilt / -4f), wallRunCameraTilt);
+
+        if (moving)
+        {
+            transform.localRotation = Quaternion.Euler(0, cameraBase.rotation.eulerAngles.y, 0);
+        }
+        
+        //While Wallrunning
+        //Tilts camera in .5 second
+        if (Math.Abs(wallRunCameraTilt) < maxWallRunCameraTilt && wallRunning && isWallRight)
+        {
+            wallRunCameraTilt += maxWallRunCameraTilt / (maxWallRunCameraTilt * 2f);
+            FindObjectOfType<CameraCollision>().CameraWallRun();
+        }
+
+        if (Math.Abs(wallRunCameraTilt) < maxWallRunCameraTilt && wallRunning && isWallLeft)
+        {
+            wallRunCameraTilt -= maxWallRunCameraTilt / (maxWallRunCameraTilt * 2f);
+            FindObjectOfType<CameraCollision>().CameraWallRun();
+        }
+
+        //Tilts camera back again
+        if (wallRunCameraTilt > 0 && !isWallRight && !isWallLeft)
+        {
+            wallRunCameraTilt -= maxWallRunCameraTilt / (maxWallRunCameraTilt * 2f);
+            FindObjectOfType<CameraCollision>().ResetCameraWallRun();
+        }
+
+        if (wallRunCameraTilt < 0 && !isWallRight && !isWallLeft)
+        {
+            wallRunCameraTilt += maxWallRunCameraTilt / (maxWallRunCameraTilt * 2f);
+            FindObjectOfType<CameraCollision>().ResetCameraWallRun();
+        }
+    }
+
+    private void Movement()
+    {
+        float gravityMultiplier = 10f;
+
+        grounded = Physics.Raycast(transform.position, -transform.up, 1.5f, Environment);
+
+        if (crouching) gravityMultiplier = crouchGravityMultiplier;
+
+        rb.AddForce(-transform.up * Time.deltaTime * gravityMultiplier);
+
+        //Find actual velocity relative to where player is looking
+        Vector2 mag = FindLook();
+        float xMag = mag.x, yMag = mag.y;
+
+        CounterMovement(x, y, mag);
+
+        if (sprinting && grounded) Sprint();
+        if (!sprinting) StopSprint();
+
+        float maxSpeed = this.maxSpeed;
+
+        if (crouching && grounded && readyToJump)
+        {
+            rb.AddForce(Vector3.down * Time.deltaTime * 3000);
+            return;
+        }
+
+        float multiplier = 1f, multiplierV = 1.05f;
+
+        // Movement in air
+        if (!grounded)
+        {
+            landed = false;
+            multiplier = 0.6f;
+            multiplierV = 0.6f;
+        }
+
+        if (grounded)
+        {
+            Land();
+        }
+
+        if (grounded && !crouching)
+        {
+            multiplier = 1f;
+            multiplierV = 1.05f;
+        }
+
+        if (grounded && crouching) multiplierV = 0.01f;
+
+        //Move the player
+        rb.AddForce(transform.forward * y * moveSpeed * Time.deltaTime * multiplier * multiplierV, ForceMode.VelocityChange);
+        rb.AddForce(transform.right * x * moveSpeed * Time.deltaTime * multiplier, ForceMode.VelocityChange);
+    }
+
+    private void CounterMovement(float x, float y, Vector2 mag)
+    {
+        if (!grounded || Input.GetKey(KeyCode.Space)) return;
+
+        //Slow down sliding
+        if (crouching)
+        {
+            rb.AddForce(moveSpeed * Time.deltaTime * -rb.velocity.normalized * slideCounterMovement);
+            return;
+        }
+
+        //Counter movement
+        if (Math.Abs(mag.x) > threshold && Math.Abs(x) < 0.05f || (mag.x < -threshold && x > 0) || (mag.x > threshold && x < 0))
+        {
+            rb.AddForce((moveSpeed * transform.right * Time.deltaTime * -mag.x * counterMovement));
+        }
+        if (Math.Abs(mag.y) > threshold && Math.Abs(y) < 0.05f || (mag.y < -threshold && y > 0) || (mag.y > threshold && y < 0))
+        {
+            rb.AddForce((moveSpeed * transform.forward * Time.deltaTime * -mag.y * counterMovement));
+        }
+
+        //Limit diagonal running. This will also cause a full stop if sliding fast and un-crouching, so not optimal.
+        if (Mathf.Sqrt((Mathf.Pow(rb.velocity.x, 2) + Mathf.Pow(rb.velocity.z, 2))) > maxSpeed)
+        {
+            float fallspeed = rb.velocity.y;
+            Vector3 n = (rb.velocity.normalized * maxSpeed);
+            rb.velocity = new Vector3(n.x, fallspeed, n.z);
+        }
+    }
+    
+    public Vector2 FindLook()
+    {
+        float lookAngle = transform.eulerAngles.y;
+        float moveAngle = Mathf.Atan2(rb.velocity.x, rb.velocity.z) * Mathf.Rad2Deg;
+
+        float u = Mathf.DeltaAngle(lookAngle, moveAngle);
+        float v = 90 - u;
+
+        float magnitue = rb.velocity.magnitude;
+        float yMag = magnitue * Mathf.Cos(u * Mathf.Deg2Rad);
+        float xMag = magnitue * Mathf.Cos(v * Mathf.Deg2Rad);
+
+        return new Vector2(xMag, yMag);
+    }
+
+    private void Jump()
+    {
+        if (grounded)
+        {
+            grounded = false;
+            canWallJump = false;
+
+            Instantiate(wallJumpEffect, transform.position + -transform.up / 2, Quaternion.Euler(90, 0, 0));
+            rb.AddForce(jump * jumpForce, ForceMode.Impulse);
+        }
+    }
+
+    private void Sprint()
+    {
+        moveSpeed = sprintSpeed;
+        maxSpeed = totalMaxSpeed;
+    }
+
+    private void StopSprint()
+    {
+        moveSpeed = setSpeed;
+        maxSpeed = setMaxSpeed;
+    }
+
+    private void WallJump()
+    {
+        canLeaveWallRun = false;
+
+        if (canWallJump && !grounded && readyToWallJump)
+        {
+            wallRunning = false;
+            canWallJump = false;
+            grounded = false;
+            readyToWallJump = false;
+
+            Instantiate(wallJumpEffect, transform.position + wallJump, Quaternion.Euler(90, 0, 0));
+
+            if (isWallLeft || isWallRight)
+            {
+                rb.AddForce(jump * jumpForce * 1f, ForceMode.Impulse);
+                rb.AddForce(wallJump * wallJumpForce * 0.75f, ForceMode.Impulse);
+            }
+                
+            if (isWallFront)
+            {
+                rb.AddForce(jump * jumpForce * 1.1f, ForceMode.Impulse);
+                rb.AddForce(wallJump * wallJumpForce * 0.6f, ForceMode.Impulse);
+            }
+
+            Invoke("ResetWallJump", 0.5f);
+        }
+    }
+
+    private void ResetWallJump()
+    {
+        readyToWallJump = true;
+    }
+
+    private void WallRunInput() //make sure to call in void Update
+    {
+        //Wallrun
+        if (Input.GetKey(KeyCode.D) && Input.GetKey(KeyCode.W) && isWallRight)
+        {
+            Wallrun();
+        }
+
+        if (Input.GetKey(KeyCode.A) && Input.GetKey(KeyCode.W) && isWallLeft)
+        {
+            Wallrun();
+        }
+    }
+
+    private void Wallrun()
+    {
+        wallRunning = true;
+        rb.useGravity = false;
+
+        if (wallRunning)
+        {
+            rb.AddForce(transform.forward * wallrunForce * Time.deltaTime / 4f, ForceMode.VelocityChange);
+
+            //Make sure player sticks to wall
+            if (isWallRight)
+                rb.AddForce(transform.right * wallrunForce / 8f * Time.deltaTime);
+            if (isWallLeft)
+                rb.AddForce(-transform.right * wallrunForce / 8f * Time.deltaTime);
+        }
+
+        if (canAddWallRun && !grounded && rb.velocity.magnitude > 40f)
+        {
+            canAddWallRun = false;
+            canLeaveWallRun = true;
+            //rb.AddForce(transform.up * wallrunForce / 13f, ForceMode.VelocityChange);
+        }
+    }
+
+    private void StopWallRun()
+    {
+        wallRunning = false;
+
+        Debug.Log("S");
+
+        if (canLeaveWallRun)
+        {
+            canLeaveWallRun = false;
+
+            rb.AddForce(-transform.up * wallJumpForce * 20f);
+            rb.AddForce(wallJump * wallJumpForce / 6f, ForceMode.VelocityChange);
+        }
+    }
+
+    private void CheckForWall() //make sure to call in void Update
+    {
+        isWallFront = Physics.Raycast(transform.position, transform.forward, 0.99f, Environment) && !isWallLeft && !isWallRight && !grounded && moving;
+        isWallRight = Physics.Raycast(transform.position, transform.right, 0.98f, Environment) && !isWallLeft && !isWallFront && !grounded && moving;
+        isWallLeft = Physics.Raycast(transform.position, -transform.right, 0.98f, Environment) && !isWallRight && !isWallFront && !grounded && moving;
+
+        if (isWallFront)
+        {
+            canWallJump = true;
+            wallJump = -transform.forward;
+        }
+
+        if (isWallRight)
+        {
+            canWallJump = true;
+            wallJump = -transform.right;
+        }
+        
+        if (isWallLeft)
+        {
+            canWallJump = true;
+            wallJump = transform.right;
+        }
+
+        if (!isWallLeft && !isWallRight && !isWallFront)
+        {
+            canWallJump = false;
+            wallRunning = false;
+            canAddWallRun = true;
+            rb.useGravity = true;
+        }
+            
+        if (isWallFront && !wallRunning || isWallLeft && !wallRunning || isWallRight && !wallRunning) rb.AddForce(-transform.up * (moveSpeed / 3f) * Time.deltaTime, ForceMode.VelocityChange);
+
+        if (canLeaveWallRun && !isWallLeft && !isWallRight && !wallRunning) StopWallRun();
+    }
+
+    private void StartCrouch()
+    {
+        transform.localScale = crouchScale;
+        transform.position = new Vector3(transform.position.x, transform.position.y - 0.5f, transform.position.z);
+        if (rb.velocity.magnitude > 50f)
+        {
+            if (grounded)
+            {
+                rb.AddForce(transform.forward * slideForce);
+            }
+        }
+    }
+
+    private void StopCrouch()
+    {
+        transform.localScale = playerScale;
+        transform.position = new Vector3(transform.position.x, transform.position.y + 0.5f, transform.position.z);
+    }
+
+    private void Land()
+    {
+        if (!landed)
+        {
+            landed = true;
+
+            readyToJump = true;
+            if (rb.velocity.magnitude > 50f) Instantiate(landEffect, transform.position, Quaternion.Euler(90, 0, 0));
+            if (rb.velocity.magnitude > 90f) Instantiate(landEffect2, transform.position + transform.up / 2f, Quaternion.Euler(90, 0, 0));
+        }
+    }
+
+    private void HighSpeed()
+    {
+        if (canSprint && moving)
+        {
+            canSprint = false;
+            sprintEffect.Play();
+        }
+    }
+
+    private void ResetGravity()
+    {
+        rb.useGravity = true;
+    }
+}
